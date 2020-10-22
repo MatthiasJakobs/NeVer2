@@ -10,9 +10,9 @@ from maraboupy import MarabouCore
 import onnx
 import os
 import numpy as np
-import eran
-import constraints
-import ai_milp
+#import eran
+#import constraints
+#import ai_milp
 import nodes
 import scipy.io as sio
 import subprocess
@@ -124,7 +124,7 @@ class MarabouVerification(VerificationStrategy):
 
     """
 
-    def verify(self, network: networks.NeuralNetwork, prop: Property) -> (bool, typing.Optional[Tensor.Tensor]):
+    def verify(self, network_path: str, prop: Property) -> (bool, typing.Optional[Tensor.Tensor]):
         """
         Verify that the neural network of interest satisfy the property given as argument
         using the Marabou verification tool.
@@ -142,6 +142,10 @@ class MarabouVerification(VerificationStrategy):
             True and None if the neural network satisfy the property, False and the counterexample otherwise.
 
         """
+
+        # Comment Matthias
+        # - I suspect that the authors assume that the data for MNIST is reshaped to (784) instead of (1, 28, 28)
+
         if isinstance(prop, SMTLIBProperty):
             targeted, bounds, target = utilities.parse_linf_robustness_smtlib(prop.smtlib_path)
         elif isinstance(prop, LocalRobustnessProperty):
@@ -150,15 +154,9 @@ class MarabouVerification(VerificationStrategy):
             bounds = []
             for i in range(len(prop.data)):
 
-                if prop.data[i] + prop.epsilon > prop.bounds[i][1]:
-                    ub = prop.bounds[i][1]
-                else:
-                    ub = prop.data[i] + prop.epsilon
+                ub = prop.data[i] + prop.epsilon
 
-                if prop.data[i] - prop.epsilon < prop.bounds[i][0]:
-                    lb = prop.bounds[i][0]
-                else:
-                    lb = prop.data[i] - prop.epsilon
+                lb = prop.data[i] - prop.epsilon
 
                 bounds.append((lb, ub))
         else:
@@ -167,23 +165,29 @@ class MarabouVerification(VerificationStrategy):
         if not targeted:
             raise NotImplementedError
 
-        onnx_rep = cv.ONNXConverter().from_neural_network(network)
-        onnx.save_model(onnx_rep.onnx_network, "temp/onnx_network.onnx")
+        #onnx_rep = cv.ONNXConverter().from_neural_network(network)
+        #onnx.save_model(onnx_rep.onnx_network, "temp/onnx_network.onnx")
 
-        marabou_onnx_net = Marabou.read_onnx("temp/onnx_network.onnx")
-        os.remove("temp/onnx_network.onnx")
+        marabou_onnx_net = Marabou.read_onnx(network_path)
+        #os.remove("temp/onnx_network.onnx")
         input_vars = marabou_onnx_net.inputVars[0][0]
         output_vars = marabou_onnx_net.outputVars
 
-        assert(len(bounds) == len(input_vars))
+        assert(len(bounds) == np.prod(input_vars.shape))
 
-        for i in range(len(input_vars)):
-            marabou_onnx_net.setLowerBound(input_vars[i], bounds[i][0])
-            marabou_onnx_net.setUpperBound(input_vars[i], bounds[i][1])
+        for row in range(input_vars.shape[1]):
+            for col in range(input_vars.shape[2]):
+                i = col + row * input_vars.shape[1]
+                marabou_onnx_net.setLowerBound(input_vars[0][row][col], bounds[i][0])
+                marabou_onnx_net.setUpperBound(input_vars[0][row][col], bounds[i][1])
+
+        # for i in range(len(input_vars)):
+        #     marabou_onnx_net.setLowerBound(input_vars[i], bounds[i][0])
+        #     marabou_onnx_net.setUpperBound(input_vars[i], bounds[i][1])
 
         for i in range(len(output_vars)):
             if i != target:
-                MarabouUtils.addInequality(marabou_onnx_net, [output_vars[i], output_vars[target]], [1, -1], 0)
+                marabou_onnx_net.addInequality([output_vars[0][i], output_vars[0][target]], [1, -1], 0)
 
         options = MarabouCore.Options()
         # options._verbosity = 2

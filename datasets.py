@@ -74,7 +74,7 @@ class MNISTDataset(Dataset):
 
         transform = tv.transforms.Compose([
             tv.transforms.ToTensor(),
-            tv.transforms.Normalize((0.5,), (0.5,)),
+            tv.transforms.Normalize((0.1307,), (0.3081,))
         ])
 
         train_loader = torch.utils.data.DataLoader(
